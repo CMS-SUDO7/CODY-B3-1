@@ -15,9 +15,12 @@ class MiniRedis:
     OOM_ERROR = "(error) OOM command not allowed when used_memory > 'maxmemory'"
 
     def __init__(self, clock=None):
+        # 실제 문자열 데이터: key -> value
         self.data = HashMap()
+        # LRU 책임 분리: 리스트는 사용 순서, 해시맵은 key -> 리스트 노드 탐색
         self.lru = DoublyLinkedList()
         self.lru_nodes = HashMap()
+        # TTL 책임 분리: 해시맵은 활성 TTL, 최소 힙은 가장 이른 만료 탐색
         self.expires = HashMap()
         self.expire_heap = MinHeap()
         self.used_memory = 0
@@ -67,6 +70,11 @@ class MiniRedis:
             self._delete_key(key)
 
     def _evict_if_needed(self):
+        """제한 이하가 될 때까지 tail(LRU)을 제거하고 통계를 갱신한다.
+
+        TTL 만료나 사용자의 DEL은 eviction이 아니므로 evicted_keys를 올리지
+        않는다. 별도 로그는 Redis 스타일 명령 출력과 섞이지 않도록 남기지 않는다.
+        """
         while self.maxmemory > 0 and self.used_memory > self.maxmemory:
             if self.lru.tail is None:
                 break
@@ -92,6 +100,7 @@ class MiniRedis:
         return "OK"
 
     def get(self, key):
+        """만료 정리 후 존재하는 값만 반환하고 그때만 LRU를 갱신한다."""
         self._purge_expired()
         if not self.data.contains(key):
             return "(nil)"
